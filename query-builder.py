@@ -452,6 +452,8 @@ def main():
     jadro.zapsani_join_schema_do_souboru()
     jadro.nacteni_join_schema_ze_souboru()
     jadro.porovna_a_zapise_join_schema()
+    jadro.zpracovani_joinu()
+    jadro.sestaveni_sql()
 
     # print(jadro.sloupce)
     # print(jadro.seznam_tabulek)
@@ -461,7 +463,7 @@ def main():
     # print(jadro.schema_vysledne)
     # print(jadro.schema_pro_sql)
     # print(jadro.joiny)
-    # print(jadro.joiny_vysledne)
+    print(jadro.joiny_vysledne)
     # print(jadro._aggs)
     # print(jadro._sloupce)
     print(jadro._joiny)
