@@ -29,6 +29,25 @@ class Jadro:
         self.tabulky: list[Tabulka] = []
         self.schema: dict = {}
         self.schema_upravena: dict = {}
+        self.schema_vysledne: dict = {}
+        self.schema_pro_sql: dict = {}
+        
+        self.joiny: dict = {}
+        self.joiny_vysledne: dict = {}
+
+        self.vychozi_tabulka: str = ''
+
+        self.apply_group_by = False
+
+        self._from = []
+        self._aggs = []
+        # sloupce a group by je nutné dělat zvlášť, protože
+        # sloupce můžou mít aliasy 
+        self._gb = []
+        self._sloupce = []
+        self._joiny = []
+
+        self.prikaz = ''
 
     def zpracuje_seznam_tabulek(self) -> Self:
         """
@@ -170,7 +189,238 @@ class Jadro:
                     vys,
                     self.ziskat_klic_a_hodnotu(self.schema_upravena, i)
                 )
+
+    def filtruj_sloupce(self) -> Self:
+        """
+        Když je u sloupce uvedená 1, metoda zpracuje
+        sloupec do výsledného SQL příkazu
+        """
+        vysledne = {}
+
+        for kategorie, obsah in self.schema_upravena.items():
+            vysledne[kategorie] = {'sloupce': {}, 'alias': obsah['alias']}
+            
+            for sloupec, hodnota in obsah['sloupce'].items():
+                if hodnota == 1:
+                    vysledne[kategorie]['sloupce'][f'{kategorie}.{sloupec}'] = hodnota
+
+        self.schema_vysledne = vysledne
+        return self
     
+    def filtruj_nepouzite_tabulky(self) -> Self:
+        """
+        Když není některé z tabulek použitá, odebere
+        ji z výsledného schéma
+        """
+        vysledne = {}
+
+        for i, ihod in self.schema_vysledne.items():
+            if ihod.get('sloupce'):
+                vysledne[i] = ihod
+        
+        self.schema_vysledne = vysledne
+        return self
+
+    def doplneni_atributu(self) -> Self:
+        """
+        Doplní atributy ke sloupcům jako agregace, alias sloupce
+        """
+        # projdi tabulky
+        for i, ihod in self.schema_vysledne.items():
+            # projdi sloupce tabulky
+            for j, jhod in ihod['sloupce'].items():
+                # u každého sloupce přidej následující atributy
+                ihod['sloupce'][j] = {'agg': '', 'alias': ''}
+
+    def zapsani_celkoveho_schema_do_souboru(self) -> None:
+        """
+        Metoda projde seznam tabulek a u každé 
+        tabulky zapíše JSON schéma do souboru
+        """
+        n = Zapsani(os.path.dirname(__file__))
+
+        vys = n.vystupni_soubor(f'celkove.txt')
+        
+        # zkontroluje, zda již soubory neexistují 
+        if not os.path.exists(vys):
+            n.zapsani_json(
+                vys,
+                self.schema_vysledne
+            )
+    
+    def nacteni_celkoveho_schema_ze_souboru(self) -> dict[Any]:
+        """
+        Načti upravené celkové schéma ze souboru
+        """
+        n = Cteni(os.path.dirname(__file__))
+
+        vs = n.vstupni_soubor(f'celkove.txt')
+        
+        if os.path.exists(vs):
+            data = n.cteni_json(vs)
+        else:
+            logging.info('Celkový soubor s daty tabulek neexistuje!')
+        self.schema_pro_sql.update(data)
+
+    def porovna_a_zapise_celkove_schema(self) -> Self:
+        """
+        Tato metoda porovná generované schéma s již editovaným
+        """
+        if self.schema_pro_sql is not None:
+            self.schema_pro_sql = self.porovnani(self.schema_vysledne, self.schema_pro_sql)
+            n = Zapsani(os.path.dirname(__file__))
+            vys = n.vystupni_soubor(f'celkove.txt')
+
+            n.zapsani_json(
+                vys,
+                self.schema_pro_sql
+            )
+    
+    def priprava_pro_sql(self) -> Self:
+        """
+        Zpracuje výsledný JSON pro sestavení SQL dotazu
+        """
+        for i, ihod in self.schema_pro_sql.items():
+            self._from.append(i)
+            # print(ihod)
+            for j, jhod in ihod['sloupce'].items():
+                # print(jhod)
+                if isinstance(jhod, dict):
+                    _temp = ''
+                    _func = ''
+                    _agg = ''
+                    if jhod.get('agg') == '':
+                        _func += j
+                        self.apply_group_by = True
+                        self._gb.append(j)
+                    if jhod.get('agg') != '':
+                        _agg += jhod.get('agg')
+                        _agg += '('
+                        _agg += j
+                        _agg += ')'
+                    if jhod.get('alias') != '':
+                        _temp += ' as '
+                        _temp += jhod.get('alias')
+                    if jhod.get('agg') != '':
+                        _agg += _temp
+                    else:
+                        _func += _temp
+                    if _agg:
+                        self._aggs.append(_agg)
+                    if _func:
+                        self._sloupce.append(_func)
+
+        return self
+    
+    def priprava_joinu_pro_sql(self) -> Self:
+        """
+        Metoda pro sestavení Joinů
+        """
+        res: dict = {}
+        for i in self.seznam_tabulek:
+            res[i] = {
+                'vychozi': 0, 
+                'typ_vazby': '', 
+                'vazba': '', 
+                'klice': ''
+            }
+
+        self.joiny = res
+        return self
+    
+    def zapsani_join_schema_do_souboru(self) -> None:
+        """
+        Metoda projde seznam tabulek a u každé 
+        tabulky zapíše JSON schéma do souboru
+        """
+        n = Zapsani(os.path.dirname(__file__))
+
+        vys = n.vystupni_soubor(f'joiny.txt')
+
+        # zkontroluje, zda již soubory neexistují 
+        if not os.path.exists(vys):
+            n.zapsani_json(
+                vys,
+                self.joiny
+            )
+
+    def nacteni_join_schema_ze_souboru(self) -> dict[Any]:
+        """
+        Načti upravené celkové schéma ze souboru
+        """
+        n = Cteni(os.path.dirname(__file__))
+
+        vs = n.vstupni_soubor(f'joiny.txt')
+        
+        if os.path.exists(vs):
+            data = n.cteni_json(vs)
+        else:
+            logging.info('Celkový soubor s daty tabulek neexistuje!')
+        self.joiny_vysledne.update(data)
+
+    def porovna_a_zapise_join_schema(self) -> Self:
+        """
+        Tato metoda porovná generované schéma s již editovaným
+        """
+        if self.joiny_vysledne is not None:
+            self.joiny_vysledne = self.porovnani(self.joiny, self.joiny_vysledne)
+            n = Zapsani(os.path.dirname(__file__))
+            vys = n.vystupni_soubor(f'joiny.txt')
+
+            n.zapsani_json(
+                vys,
+                self.joiny_vysledne
+            )
+
+    def zpracovani_joinu(self) -> Self:
+        """
+        Zpracuje definované joiny a přidá je do sql dotazu
+        """
+        res: list = []
+
+        for i, ihod in self.joiny_vysledne.items():
+            vz: str = ''
+            if ihod.get('vychozi') == 1:
+                self.vychozi_tabulka = i
+            if len(ihod.get('vazba')) > 0:
+                vz += ihod.get('typ_vazby')
+                vz += ' '
+                vz += ihod.get('vazba')
+                res.append(vz)
+
+        self._joiny = res
+        return self
+    
+    def zretezeni_casti_prikazu(self, arg: list[Any], carka: bool) -> str:
+        """
+        Pomocná funkce pro zřetězení seznamu hodnot do 
+        výsledného řetězce
+        """
+        res = '    '
+        res += ',\n    '.join(arg)
+        if carka:
+            res += ',\n'
+        else:
+            res += ' \n'
+        return res
+    
+    def sestaveni_sql(self) -> Self:
+        """
+        Sestavení SQL příkazu
+        """
+
+        prikaz = 'select\n'
+        prikaz += self.zretezeni_casti_prikazu(self._sloupce, True)
+        if self.apply_group_by:
+            prikaz += self.zretezeni_casti_prikazu(self._aggs, False)
+        prikaz += 'from '
+        prikaz += self.vychozi_tabulka + '\n'
+        prikaz += "\n".join(self._joiny) + '\n'
+        if self.apply_group_by:
+            prikaz += self.zretezeni_casti_prikazu(self._gb, False)
+
+        self.prikaz = prikaz
+        return self
 
 # Hlavní metoda skriptu
 def main():
@@ -189,8 +439,33 @@ def main():
     jadro.nacteni_schemat_ze_souboru()
     jadro.porovna_a_zapise_schema()
 
-    print(jadro.schema)
-    print(jadro.schema_upravena)
+    jadro.nacteni_schemat_ze_souboru()
+    jadro.filtruj_sloupce()
+    jadro.filtruj_nepouzite_tabulky()
+    jadro.doplneni_atributu()
+    jadro.zapsani_celkoveho_schema_do_souboru()
+    jadro.nacteni_celkoveho_schema_ze_souboru()
+    jadro.porovna_a_zapise_celkove_schema()
+
+    jadro.priprava_pro_sql()
+    jadro.priprava_joinu_pro_sql()
+    jadro.zapsani_join_schema_do_souboru()
+    jadro.nacteni_join_schema_ze_souboru()
+    jadro.porovna_a_zapise_join_schema()
+
+    # print(jadro.sloupce)
+    # print(jadro.seznam_tabulek)
+    # print(jadro.tabulky)
+    # print(jadro.schema)
+    # print(jadro.schema_upravena)
+    # print(jadro.schema_vysledne)
+    # print(jadro.schema_pro_sql)
+    # print(jadro.joiny)
+    # print(jadro.joiny_vysledne)
+    # print(jadro._aggs)
+    # print(jadro._sloupce)
+    print(jadro._joiny)
+    print(jadro.prikaz)
 
     logging.info('Ukončení skriptu')
     print()
