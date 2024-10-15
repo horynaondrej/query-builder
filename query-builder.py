@@ -49,6 +49,13 @@ class Jadro:
 
         self.prikaz = ''
 
+    def naformatuje_zdrojovy_soubor(self) -> Self:
+        """
+        Zmenší písmo ve zdrojovm soubory s tabulkami a sloupci
+        """
+        self.sloupce = [[j.lower() for j in i] for i in self.sloupce]
+        return self
+
     def zpracuje_seznam_tabulek(self) -> Self:
         """
         Získá seznam tabulek z dat o tabulkách a jejich sloupcích
@@ -189,6 +196,7 @@ class Jadro:
                     vys,
                     self.ziskat_klic_a_hodnotu(self.schema_upravena, i)
                 )
+        return self
 
     def filtruj_sloupce(self) -> Self:
         """
@@ -275,41 +283,54 @@ class Jadro:
                 vys,
                 self.schema_pro_sql
             )
+        return self
     
     def priprava_pro_sql(self) -> Self:
         """
         Zpracuje výsledný JSON pro sestavení SQL dotazu
         """
+        # projdi celkové schéma
         for i, ihod in self.schema_pro_sql.items():
+            # do klauzule FROM přidej všechny tabulky
             self._from.append(i)
-            # print(ihod)
+            # projdi část schéma se sloupci
             for j, jhod in ihod['sloupce'].items():
-                # print(jhod)
+                # kontrola, zda se jedná o sloupce
                 if isinstance(jhod, dict):
                     _temp = ''
                     _func = ''
                     _agg = ''
+                    # když je hodnota agregace prázdná
                     if jhod.get('agg') == '':
+                        # přidej do výsledku jen čistý sloupec
                         _func += j
-                        self.apply_group_by = True
-                        self._gb.append(j)
+                    # když je nastavená agregace
                     if jhod.get('agg') != '':
+                        # tak obal sloupec agregační funkcí
                         _agg += jhod.get('agg')
-                        _agg += '('
-                        _agg += j
-                        _agg += ')'
+                        _agg += f'({j})'
+                        # a nastav příznak agregace na True
+                        self.apply_group_by = True
+                        # přidej tyto sloupce s agregací do seznamu
+                        self._gb.append(j)
                     if jhod.get('alias') != '':
+                        # když není alias sloupce prázdný, 
+                        # tak přidej alias sloupce
                         _temp += ' as '
                         _temp += jhod.get('alias')
+                    # plus ještě kontrola aliasu 
+                    # i pro agregované sloupce
+                    # když je agregace
                     if jhod.get('agg') != '':
+                        # tak přidej její alias
                         _agg += _temp
                     else:
+                        # jinak přidej alias jen ke sloupci
                         _func += _temp
                     if _agg:
                         self._aggs.append(_agg)
                     if _func:
                         self._sloupce.append(_func)
-
         return self
     
     def priprava_joinu_pro_sql(self) -> Self:
@@ -321,8 +342,7 @@ class Jadro:
             res[i] = {
                 'vychozi': 0, 
                 'typ_vazby': '', 
-                'vazba': '', 
-                'klice': ''
+                'vazba': ''
             }
 
         self.joiny = res
@@ -371,6 +391,7 @@ class Jadro:
                 vys,
                 self.joiny_vysledne
             )
+        return self
 
     def zpracovani_joinu(self) -> Self:
         """
@@ -396,8 +417,9 @@ class Jadro:
         Pomocná funkce pro zřetězení seznamu hodnot do 
         výsledného řetězce
         """
-        res = '    '
-        res += ',\n    '.join(arg)
+        mezera = '    '
+        res = f'{mezera}'
+        res += f',\n{mezera}'.join(arg)
         if carka:
             res += ',\n'
         else:
@@ -432,6 +454,7 @@ def main():
     logging.info('Spuštění skriptu')
 
     jadro = Jadro()
+    jadro.naformatuje_zdrojovy_soubor()
     jadro.zpracuje_seznam_tabulek()
     jadro.vytvoreni_objektu_tabulek()
     jadro.vytvoreni_schemat()
@@ -463,10 +486,10 @@ def main():
     # print(jadro.schema_vysledne)
     # print(jadro.schema_pro_sql)
     # print(jadro.joiny)
-    print(jadro.joiny_vysledne)
+    # print(jadro.joiny_vysledne)
     # print(jadro._aggs)
     # print(jadro._sloupce)
-    print(jadro._joiny)
+    # print(jadro._joiny)
     print(jadro.prikaz)
 
     logging.info('Ukončení skriptu')
