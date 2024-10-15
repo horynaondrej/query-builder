@@ -304,15 +304,15 @@ class Jadro:
                     if jhod.get('agg') == '':
                         # přidej do výsledku jen čistý sloupec
                         _func += j
+                        self.apply_group_by = True
+                        # přidej tyto sloupce s agregací do seznamu
+                        self._gb.append(j)
                     # když je nastavená agregace
                     if jhod.get('agg') != '':
                         # tak obal sloupec agregační funkcí
                         _agg += jhod.get('agg')
                         _agg += f'({j})'
                         # a nastav příznak agregace na True
-                        self.apply_group_by = True
-                        # přidej tyto sloupce s agregací do seznamu
-                        self._gb.append(j)
                     if jhod.get('alias') != '':
                         # když není alias sloupce prázdný, 
                         # tak přidej alias sloupce
@@ -341,8 +341,10 @@ class Jadro:
         for i in self.seznam_tabulek:
             res[i] = {
                 'vychozi': 0, 
-                'typ_vazby': '', 
-                'vazba': ''
+                # typ vazby, vazba
+                'vazba': [
+                    ['', '']
+                ]
             }
 
         self.joiny = res
@@ -403,12 +405,16 @@ class Jadro:
             vz: str = ''
             if ihod.get('vychozi') == 1:
                 self.vychozi_tabulka = i
-            if len(ihod.get('vazba')) > 0:
-                vz += ihod.get('typ_vazby')
-                vz += ' '
-                vz += ihod.get('vazba')
-                res.append(vz)
 
+            vazby = ihod.get('vazba')
+            if isinstance(vazby, list):
+                # vrací boolean
+                if all(prvek for prvek in vazby[0]):
+                     for i in vazby:
+                        vz += i[0]
+                        vz += ' '
+                        vz += i[1]
+                        res.append(vz)
         self._joiny = res
         return self
     
@@ -490,6 +496,7 @@ def main():
     # print(jadro._aggs)
     # print(jadro._sloupce)
     # print(jadro._joiny)
+    print()
     print(jadro.prikaz)
 
     logging.info('Ukončení skriptu')
