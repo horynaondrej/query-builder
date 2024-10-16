@@ -47,6 +47,7 @@ class Jadro:
         # sloupce a group by je nutné dělat zvlášť, protože
         # sloupce můžou mít aliasy 
         self._gb = []
+        self._where = []
         self._sloupce = []
         self._joiny = []
 
@@ -241,7 +242,7 @@ class Jadro:
             # projdi sloupce tabulky
             for j, jhod in ihod['sloupce'].items():
                 # u každého sloupce přidej následující atributy
-                ihod['sloupce'][j] = {'agg': '', 'alias': ''}
+                ihod['sloupce'][j] = {'agg': '', 'alias': '', 'podminky': [['', '']]}
 
     def zapsani_celkoveho_schema_do_souboru(self) -> None:
         """
@@ -285,7 +286,9 @@ class Jadro:
                 # když sloupec nemá slovník s atributy
                 # musí se přidat
                 if jhod == 0:
-                    ihod['sloupce'][j] = {'agg': '', 'alias': ''}
+                    ihod['sloupce'][j] = {'agg': '', 'alias': '', 'podminky': [['', '']]}
+                if jhod['podminky'] == 0:
+                    jhod['podminky'] = [['', '']]
         return self
 
     def porovna_a_zapise_celkove_schema(self) -> Self:
@@ -306,6 +309,18 @@ class Jadro:
                 self.schema_pro_sql
             )
         return self
+
+    def kontrola_2d_pole(self, arr: list[Any]) -> bool:
+        """
+        Kontrola 2d pole, které se používá například 
+        u JOINů nebo podmínek WHERE
+        """
+        res = False
+        for radek in arr:
+            for clen in radek:
+                if clen != '':
+                    res = True
+        return res
     
     def priprava_pro_sql(self) -> Self:
         """
@@ -322,6 +337,7 @@ class Jadro:
                     _temp = ''
                     _func = ''
                     _agg = ''
+                    _whe = ''
                     # když je hodnota agregace prázdná
                     if jhod.get('agg') == '':
                         # přidej do výsledku jen čistý sloupec
@@ -349,10 +365,23 @@ class Jadro:
                     else:
                         # jinak přidej alias jen ke sloupci
                         _func += _temp
+                    podminky = jhod.get('podminky')
+                    b = 1
+                    if self.kontrola_2d_pole(podminky):
+                        for p in podminky:
+                            # sloupec, operátor, hodnota
+                            _whe += f'{j} {p[0]} {p[1]}'
+                            # dokud je b menší než délka podmínek
+                            # přidávej operátor AND
+                            if b < len(podminky):
+                                _whe += ' and '
+                            b += 1
                     if _agg:
                         self._aggs.append(_agg)
                     if _func:
                         self._sloupce.append(_func)
+                    if _whe:
+                        self._where.append(_whe)
         return self
     
     def priprava_joinu_pro_sql(self) -> Self:
@@ -431,7 +460,7 @@ class Jadro:
             vazby = ihod.get('vazba')
             if isinstance(vazby, list):
                 # vrací boolean
-                if all(prvek for prvek in vazby[0]):
+                if self.kontrola_2d_pole(vazby):
                      for i in vazby:
                         vz += i[0]
                         vz += ' '
@@ -478,6 +507,10 @@ class Jadro:
         prikaz += self.vychozi_tabulka + '\n'
         if self.priznak_joinu:
             prikaz += "\n".join(self._joiny) + '\n'
+
+        if len(self._where) > 0:
+            prikaz += 'where '
+            prikaz += "\nand ".join(self._where) + '\n'
             
         if self.priznak_group_by:
             prikaz += self.zretezeni_casti_prikazu(self._gb, False)
@@ -531,6 +564,7 @@ def main():
     # print(jadro._aggs)
     # print(jadro._sloupce)
     # print(jadro._joiny)
+    print(jadro._where)
     print()
     print(jadro.prikaz)
 
