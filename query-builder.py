@@ -19,6 +19,8 @@ class Tabulka:
 class Jadro:
 
     def __init__(self) -> None:
+
+        self.mezera = '    '
         
         # Zpracování dat se seznamem sloupců u tabulek
         n = Cteni(os.path.dirname(__file__))
@@ -37,7 +39,8 @@ class Jadro:
 
         self.vychozi_tabulka: str = ''
 
-        self.apply_group_by = False
+        self.priznak_group_by = False
+        self.priznak_joinu = False
 
         self._from = []
         self._aggs = []
@@ -270,12 +273,31 @@ class Jadro:
             logging.info('Celkový soubor s daty tabulek neexistuje!')
         self.schema_pro_sql.update(data)
 
+    def doplneni_atributu_do_clk_schema(self) -> Self:
+        """
+        Protože se u již vytvořených částí celkového schéma 
+        nedoplňují klíče jako AGG nebo ALIAS, 
+        musí se doplnit expost
+        """
+        for i, ihod in self.schema_pro_sql.items():
+            # projdi sloupce tabulky
+            for j, jhod in ihod['sloupce'].items():
+                # když sloupec nemá slovník s atributy
+                # musí se přidat
+                if jhod == 0:
+                    ihod['sloupce'][j] = {'agg': '', 'alias': ''}
+        return self
+
     def porovna_a_zapise_celkove_schema(self) -> Self:
         """
         Tato metoda porovná generované schéma s již editovaným
         """
         if self.schema_pro_sql is not None:
             self.schema_pro_sql = self.porovnani(self.schema_vysledne, self.schema_pro_sql)
+
+            # kontrola atributů sloupce
+            self.doplneni_atributu_do_clk_schema()
+
             n = Zapsani(os.path.dirname(__file__))
             vys = n.vystupni_soubor(f'celkove.txt')
 
@@ -304,11 +326,11 @@ class Jadro:
                     if jhod.get('agg') == '':
                         # přidej do výsledku jen čistý sloupec
                         _func += j
-                        self.apply_group_by = True
-                        # přidej tyto sloupce s agregací do seznamu
                         self._gb.append(j)
                     # když je nastavená agregace
                     if jhod.get('agg') != '':
+                        self.priznak_group_by = True
+                        # přidej tyto sloupce s agregací do seznamu
                         # tak obal sloupec agregační funkcí
                         _agg += jhod.get('agg')
                         _agg += f'({j})'
@@ -415,6 +437,11 @@ class Jadro:
                         vz += ' '
                         vz += i[1]
                         res.append(vz)
+
+        # ještě ověř, zda zde vůbec nějaké joiny jsou
+        if len(res) > 0:
+            self.priznak_joinu = True
+
         self._joiny = res
         return self
     
@@ -423,28 +450,36 @@ class Jadro:
         Pomocná funkce pro zřetězení seznamu hodnot do 
         výsledného řetězce
         """
-        mezera = '    '
-        res = f'{mezera}'
-        res += f',\n{mezera}'.join(arg)
+        res = f'{self.mezera}'
+        res += f',\n{self.mezera}'.join(arg)
+
         if carka:
             res += ',\n'
         else:
-            res += ' \n'
+            res += '\n'
         return res
     
     def sestaveni_sql(self) -> Self:
         """
         Sestavení SQL příkazu
+
         """
 
         prikaz = 'select\n'
-        prikaz += self.zretezeni_casti_prikazu(self._sloupce, True)
-        if self.apply_group_by:
+        if self.priznak_group_by:
+            prikaz += self.zretezeni_casti_prikazu(self._sloupce, True)
+        else:
+            prikaz += self.zretezeni_casti_prikazu(self._sloupce, False)
+
+        if self.priznak_group_by:
             prikaz += self.zretezeni_casti_prikazu(self._aggs, False)
+
         prikaz += 'from '
         prikaz += self.vychozi_tabulka + '\n'
-        prikaz += "\n".join(self._joiny) + '\n'
-        if self.apply_group_by:
+        if self.priznak_joinu:
+            prikaz += "\n".join(self._joiny) + '\n'
+            
+        if self.priznak_group_by:
             prikaz += self.zretezeni_casti_prikazu(self._gb, False)
 
         self.prikaz = prikaz
