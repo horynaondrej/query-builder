@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import logging
 import os
-import konstanty as k
 from typing import Any, Self
 from cteni import Cteni
 from zapsani import Zapsani
@@ -24,8 +23,8 @@ class Jadro:
         
         # Zpracování dat se seznamem sloupců u tabulek
         n = Cteni(os.path.dirname(__file__))
-        vs = n.vstupni_soubor('sloupce.txt')
-        self.sloupce: list[list[str]] = n.cteni_csv(vs, 'utf8', ';')
+        vs = n.vstupni_soubor('sloupce.csv')
+        self.sloupce: list[list[str]] = n.cteni_csv(vs, 'utf8', ';', '"')
 
         self.seznam_tabulek: list[str] = []
         self.tabulky: list[Tabulka] = []
@@ -52,6 +51,8 @@ class Jadro:
         self._joiny = []
 
         self.prikaz = ''
+
+        self.doplnovane_schema = {'agg': '', 'alias': '', 'skryty': '', 'podminky': [['', '']]}
 
     def naformatuje_zdrojovy_soubor(self) -> Self:
         """
@@ -180,9 +181,10 @@ class Jadro:
                 if isinstance(generovane[key], dict) and isinstance(editovane[key], dict):
                     editovane[key] = self.porovnani(generovane[key], editovane[key])
             else:
-                print(f'klíč není: {key}')
-                editovane.setdefault(key)
-                editovane[key] = 0
+                # print(f'klíč není: {key}')
+                # byla nutná oprava, skript nepočítal 
+                # s přidáním celé tabulky i se sloupci
+                editovane[key] = generovane[key]
 
         return editovane
     
@@ -242,7 +244,8 @@ class Jadro:
             # projdi sloupce tabulky
             for j, jhod in ihod['sloupce'].items():
                 # u každého sloupce přidej následující atributy
-                ihod['sloupce'][j] = {'agg': '', 'alias': '', 'podminky': [['', '']]}
+                ihod['sloupce'][j] = self.doplnovane_schema
+        logging.info('Atributy doplněné.')
 
     def zapsani_celkoveho_schema_do_souboru(self) -> None:
         """
@@ -259,6 +262,7 @@ class Jadro:
                 vys,
                 self.schema_vysledne
             )
+        logging.info('Celkové schéma zapsané.')
     
     def nacteni_celkoveho_schema_ze_souboru(self) -> dict[Any]:
         """
@@ -281,14 +285,17 @@ class Jadro:
         musí se doplnit expost
         """
         for i, ihod in self.schema_pro_sql.items():
+            print(f'{i=}')
             # projdi sloupce tabulky
-            for j, jhod in ihod['sloupce'].items():
+            for j, jhod in ihod.items():
                 # když sloupec nemá slovník s atributy
                 # musí se přidat
+                print(f'{j=}')
                 if jhod == 0:
-                    ihod['sloupce'][j] = {'agg': '', 'alias': '', 'podminky': [['', '']]}
-                if jhod['podminky'] == 0:
-                    jhod['podminky'] = [['', '']]
+                    # print('pravda')
+                    ihod['sloupce'][j] = self.doplnovane_schema
+                # if jhod['podminky'] == 0:
+                #     jhod['podminky'] = [['', '']]
         return self
 
     def porovna_a_zapise_celkove_schema(self) -> Self:
@@ -296,8 +303,10 @@ class Jadro:
         Tato metoda porovná generované schéma s již editovaným
         """
         if self.schema_pro_sql is not None:
+            print(f'{self.schema_vysledne=}')
+            print(f'{self.schema_pro_sql=}')
             self.schema_pro_sql = self.porovnani(self.schema_vysledne, self.schema_pro_sql)
-
+            print(f'{self.schema_pro_sql=}')
             # kontrola atributů sloupce
             self.doplneni_atributu_do_clk_schema()
 
@@ -334,7 +343,9 @@ class Jadro:
             for j, jhod in ihod['sloupce'].items():
                 # kontrola, zda se jedná o sloupce
                 if isinstance(jhod, dict):
+                    # proměnná pro aliasy
                     _temp = ''
+                    # sloupce
                     _func = ''
                     _agg = ''
                     _whe = ''
@@ -342,7 +353,8 @@ class Jadro:
                     if jhod.get('agg') == '':
                         # přidej do výsledku jen čistý sloupec
                         _func += j
-                        self._gb.append(j)
+                        if jhod.get('skryty') != 'ano':
+                            self._gb.append(j)
                     # když je nastavená agregace
                     if jhod.get('agg') != '':
                         self.priznak_group_by = True
@@ -379,7 +391,8 @@ class Jadro:
                     if _agg:
                         self._aggs.append(_agg)
                     if _func:
-                        self._sloupce.append(_func)
+                        if jhod.get('skryty') != 'ano': 
+                            self._sloupce.append(_func)
                     if _whe:
                         self._where.append(_whe)
         return self
@@ -448,20 +461,22 @@ class Jadro:
 
     def zpracovani_joinu(self) -> Self:
         """
-        Zpracuje definované joiny a přidá je do sql dotazu
+        Zpracuje definované joiny a přidá je do seznamů joinů
         """
         res: list = []
 
         for i, ihod in self.joiny_vysledne.items():
-            vz: str = ''
+            # print(f'{ihod=}')
             if ihod.get('vychozi') == 1:
                 self.vychozi_tabulka = i
 
             vazby = ihod.get('vazba')
+            # print(f'{vazby=}')
             if isinstance(vazby, list):
                 # vrací boolean
                 if self.kontrola_2d_pole(vazby):
                      for i in vazby:
+                        vz = ''
                         vz += i[0]
                         vz += ' '
                         vz += i[1]
@@ -491,9 +506,7 @@ class Jadro:
     def sestaveni_sql(self) -> Self:
         """
         Sestavení SQL příkazu
-
         """
-
         prikaz = 'select\n'
         if self.priznak_group_by:
             prikaz += self.zretezeni_casti_prikazu(self._sloupce, True)
@@ -513,6 +526,7 @@ class Jadro:
             prikaz += "\nand ".join(self._where) + '\n'
             
         if self.priznak_group_by:
+            prikaz += 'group by \n'
             prikaz += self.zretezeni_casti_prikazu(self._gb, False)
 
         self.prikaz = prikaz
@@ -564,9 +578,16 @@ def main():
     # print(jadro._aggs)
     # print(jadro._sloupce)
     # print(jadro._joiny)
-    print(jadro._where)
+    # print(jadro._where)
     print()
     print(jadro.prikaz)
+
+    n = Zapsani(os.path.dirname(__file__))
+    vys = n.vystupni_soubor('output-select.sql')
+    n.zapsani_textu(
+        vys,
+        jadro.prikaz
+    )
 
     logging.info('Ukončení skriptu')
     print()
