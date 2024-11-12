@@ -17,12 +17,15 @@ class Tabulka:
 
 class Jadro:
 
-    def __init__(self) -> None:
+    def __init__(self, cesta: str) -> None:
 
         self.mezera = '    '
+
+        self.slozka = 'src'
+        self.cesta = os.path.join(cesta, self.slozka)
         
         # Zpracování dat se seznamem sloupců u tabulek
-        n = Cteni(os.path.dirname(__file__))
+        n = Cteni(self.cesta)
         vs = n.vstupni_soubor('sloupce.csv')
         self.sloupce: list[list[str]] = n.cteni_csv(vs, 'utf8', ';', '"')
 
@@ -140,7 +143,7 @@ class Jadro:
         Metoda projde seznam tabulek a u každé 
         tabulky zapíše JSON schéma do souboru
         """
-        n = Zapsani(os.path.dirname(__file__))
+        n = Zapsani(self.cesta)
 
         for i in self.seznam_tabulek:
             vys = n.vystupni_soubor(f'{i}.txt')
@@ -158,7 +161,7 @@ class Jadro:
         """
         Načti upravená schémata z textových souborů
         """
-        n = Cteni(os.path.dirname(__file__))
+        n = Cteni(self.cesta)
 
         for i in self.seznam_tabulek:
             vs = n.vstupni_soubor(f'{i}.txt')
@@ -194,7 +197,7 @@ class Jadro:
         """
         if self.schema_upravena is not None:
             self.schema_upravena = self.porovnani(self.schema, self.schema_upravena)
-            n = Zapsani(os.path.dirname(__file__))
+            n = Zapsani(self.cesta)
             for i in self.seznam_tabulek:
                 vys = n.vystupni_soubor(f'{i}.txt')
 
@@ -252,7 +255,7 @@ class Jadro:
         Metoda projde seznam tabulek a u každé 
         tabulky zapíše JSON schéma do souboru
         """
-        n = Zapsani(os.path.dirname(__file__))
+        n = Zapsani(self.cesta)
 
         vys = n.vystupni_soubor(f'celkove.txt')
         
@@ -268,7 +271,7 @@ class Jadro:
         """
         Načti upravené celkové schéma ze souboru
         """
-        n = Cteni(os.path.dirname(__file__))
+        n = Cteni(self.cesta)
 
         vs = n.vstupni_soubor(f'celkove.txt')
         
@@ -285,7 +288,7 @@ class Jadro:
         musí se doplnit expost
         """
         for i, ihod in self.schema_pro_sql.items():
-            print(f'{i=}')
+            # print(f'{i=}')
             # projdi sloupce tabulky
             for j, jhod in ihod.items():
                 # když sloupec nemá slovník s atributy
@@ -310,7 +313,7 @@ class Jadro:
             # kontrola atributů sloupce
             self.doplneni_atributu_do_clk_schema()
 
-            n = Zapsani(os.path.dirname(__file__))
+            n = Zapsani(self.cesta)
             vys = n.vystupni_soubor(f'celkove.txt')
 
             n.zapsani_json(
@@ -419,7 +422,7 @@ class Jadro:
         Metoda projde seznam tabulek a u každé 
         tabulky zapíše JSON schéma do souboru
         """
-        n = Zapsani(os.path.dirname(__file__))
+        n = Zapsani(self.cesta)
 
         vys = n.vystupni_soubor(f'joiny.txt')
 
@@ -434,7 +437,7 @@ class Jadro:
         """
         Načti upravené celkové schéma ze souboru
         """
-        n = Cteni(os.path.dirname(__file__))
+        n = Cteni(self.cesta)
 
         vs = n.vstupni_soubor(f'joiny.txt')
         
@@ -450,7 +453,7 @@ class Jadro:
         """
         if self.joiny_vysledne is not None:
             self.joiny_vysledne = self.porovnani(self.joiny, self.joiny_vysledne)
-            n = Zapsani(os.path.dirname(__file__))
+            n = Zapsani(self.cesta)
             vys = n.vystupni_soubor(f'joiny.txt')
 
             n.zapsani_json(
@@ -487,6 +490,7 @@ class Jadro:
             self.priznak_joinu = True
 
         self._joiny = res
+        logging.info('Joiny zpracovány v pořádku.')
         return self
     
     def zretezeni_casti_prikazu(self, arg: list[Any], carka: bool) -> str:
@@ -531,67 +535,100 @@ class Jadro:
 
         self.prikaz = prikaz
         return self
+    
+    def ulozeni_vysledneho_sql(self) -> None:
+        """
+        Metoda uloží výsledný SQL příkaz do souboru
+        """
+        z = Zapsani(self.cesta)
+        vys = z.vystupni_soubor('output-select.sql')
+        z.zapsani_textu(
+            vys,
+            self.prikaz
+        )
 
-# Hlavní metoda skriptu
-def main():
+        logging.info('Výsledný SQL příkaz zapsaný.')
 
-    format = "%(asctime)s: %(message)s"
-    logging.basicConfig(format=format, level=logging.INFO, datefmt="%H:%M:%S")
 
-    print()
-    logging.info('Spuštění skriptu')
+class Schema:
+        
+    def __init__(self, cesta: str) -> None:
 
-    jadro = Jadro()
-    jadro.naformatuje_zdrojovy_soubor()
-    jadro.zpracuje_seznam_tabulek()
-    jadro.vytvoreni_objektu_tabulek()
-    jadro.vytvoreni_schemat()
-    jadro.zapsani_schemat_do_souboru()
-    jadro.nacteni_schemat_ze_souboru()
-    jadro.porovna_a_zapise_schema()
+        self.slozka = 'src'
+        self.cesta = os.path.join(cesta, self.slozka)
 
-    jadro.nacteni_schemat_ze_souboru()
-    jadro.filtruj_sloupce()
-    jadro.filtruj_nepouzite_tabulky()
-    jadro.doplneni_atributu()
-    jadro.zapsani_celkoveho_schema_do_souboru()
-    jadro.nacteni_celkoveho_schema_ze_souboru()
-    jadro.porovna_a_zapise_celkove_schema()
+        self.tabulky = []
+        self.prikaz = ''
 
-    jadro.priprava_pro_sql()
-    jadro.priprava_joinu_pro_sql()
-    jadro.zapsani_join_schema_do_souboru()
-    jadro.nacteni_join_schema_ze_souboru()
-    jadro.porovna_a_zapise_join_schema()
-    jadro.zpracovani_joinu()
-    jadro.sestaveni_sql()
+    def vytvoreni_slozky_se_soubory(self) -> None:
+        """
+        Jestliže neexistuje složka, ve které jsou
+        uložené soubory pro vytvoření sql příkazu,
+        vytvoří ji
+        """
+        try:
+            os.makedirs(self.cesta)
+            logging.info(f"Složka '{self.cesta}' byla úspěšně vytvořena.")
 
-    # print(jadro.sloupce)
-    # print(jadro.seznam_tabulek)
-    # print(jadro.tabulky)
-    # print(jadro.schema)
-    # print(jadro.schema_upravena)
-    # print(jadro.schema_vysledne)
-    # print(jadro.schema_pro_sql)
-    # print(jadro.joiny)
-    # print(jadro.joiny_vysledne)
-    # print(jadro._aggs)
-    # print(jadro._sloupce)
-    # print(jadro._joiny)
-    # print(jadro._where)
-    print()
-    print(jadro.prikaz)
+        except FileExistsError:
+            logging.info(f"Složka '{self.cesta}' již existuje.")
 
-    n = Zapsani(os.path.dirname(__file__))
-    vys = n.vystupni_soubor('output-select.sql')
-    n.zapsani_textu(
-        vys,
-        jadro.prikaz
-    )
+    def nacteni_seznamu_tabulek(self) -> list[str]:
+        """
+        Načte seznam tabulek jako jednoduchý seznam
+        """
+        n = Cteni(self.cesta)
+        vs = n.vstupni_soubor('tabulky.txt')
+        self.tabulky = n.cteni_seznamu(vs)
 
-    logging.info('Ukončení skriptu')
-    print()
+        logging.info('Tabulky načtené v pořádku.')
 
-# Hlavní vlákno skriptu
-if __name__ == "__main__":
-    main()
+    def zapsani_prikazu_sql(self) -> None:
+        """
+        Zapíše příkaz sql
+        """
+        z = Zapsani(self.cesta)
+        vys = z.vystupni_soubor('sql-sloupce.sql')
+        z.zapsani_textu(
+            vys,
+            self.prikaz
+        )
+
+        logging.info('Příkaz zapsaný v pořádku.')
+
+    def vytvoreni_prikazu(self) -> None:
+        """
+        Sestaví příkaz pro získání seznamu sloupců u tabulek
+        """
+        t = ''
+        a = 0
+
+        if len(self.tabulky) == 0:
+            logging.info('Seznam tabulek je prázdný.')
+            return None
+
+        # sestaví sotaz pro vrácení seznamu sloupců
+        # pro každou tabulku
+        for i in self.tabulky:
+
+            match i:
+                case 'tractions_tr' | 'tractions_th':
+                    t = 'tractions'
+                case _:
+                    t = i
+
+            self.prikaz += f"SELECT '{i.upper()}' AS TABULKA, "
+            self.prikaz += "COLUMN_NAME, COLUMN_ID "
+            self.prikaz += "FROM ALL_TAB_COLUMNS "
+            self.prikaz += f"WHERE TABLE_NAME='{t.upper()}' "
+            self.prikaz += "AND OWNER='CDC_ICAR_L2'\n"
+
+            # když tabulka naní jako poslední
+            # bude následovat příkaz UNION ALL,
+            # jinak ne
+            if a != len(self.tabulky) - 1:
+                self.prikaz += f"UNION ALL\n"
+            a += 1
+
+        self.prikaz += f"ORDER BY TABULKA, COLUMN_ID;\n"
+
