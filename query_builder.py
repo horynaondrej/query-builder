@@ -52,10 +52,13 @@ class Jadro:
         self._where = []
         self._sloupce = []
         self._joiny = []
+        self._aliasy = []
 
         self.prikaz = ''
 
         self.doplnovane_schema = {'agg': '', 'alias': '', 'skryty': '', 'podminky': [['', '']]}
+
+        self.poddotazy = []
 
     def naformatuje_zdrojovy_soubor(self) -> Self:
         """
@@ -293,7 +296,7 @@ class Jadro:
             for j, jhod in ihod.items():
                 # když sloupec nemá slovník s atributy
                 # musí se přidat
-                print(f'{j=}')
+                # print(f'{j=}')
                 if jhod == 0:
                     # print('pravda')
                     ihod['sloupce'][j] = self.doplnovane_schema
@@ -306,10 +309,10 @@ class Jadro:
         Tato metoda porovná generované schéma s již editovaným
         """
         if self.schema_pro_sql is not None:
-            print(f'{self.schema_vysledne=}')
-            print(f'{self.schema_pro_sql=}')
+            # print(f'{self.schema_vysledne=}')
+            # print(f'{self.schema_pro_sql=}')
             self.schema_pro_sql = self.porovnani(self.schema_vysledne, self.schema_pro_sql)
-            print(f'{self.schema_pro_sql=}')
+            # print(f'{self.schema_pro_sql=}')
             # kontrola atributů sloupce
             self.doplneni_atributu_do_clk_schema()
 
@@ -371,12 +374,15 @@ class Jadro:
                         # tak přidej alias sloupce
                         _temp += ' as '
                         _temp += jhod.get('alias')
+                        print(jhod.get('alias'))
+                        self._aliasy.append(jhod.get('alias'))
                     # plus ještě kontrola aliasu 
                     # i pro agregované sloupce
                     # když je agregace
                     if jhod.get('agg') != '':
                         # tak přidej její alias
                         _agg += _temp
+                        self._aliasy.append(_temp)
                     else:
                         # jinak přidej alias jen ke sloupci
                         _func += _temp
@@ -398,6 +404,7 @@ class Jadro:
                             self._sloupce.append(_func)
                     if _whe:
                         self._where.append(_whe)
+
         return self
     
     def priprava_joinu_pro_sql(self) -> Self:
@@ -407,7 +414,9 @@ class Jadro:
         res: dict = {}
         for i in self.seznam_tabulek:
             res[i] = {
-                'vychozi': 0, 
+                'vychozi': 0,
+                'je_poddotaz': 0, 
+                'sql': '', 
                 # typ vazby, vazba
                 'vazba': [
                     ['', '']
@@ -461,17 +470,64 @@ class Jadro:
                 self.joiny_vysledne
             )
         return self
+    
+    def nahrad_slovo(self, retezec, puvodni_slovo, nove_slovo):
+        """
+        Funkce nahradí první výskyt původního slova novým slovem v daném řetězci.
+
+        Args:
+            retezec: Zadaný řetězec.
+            puvodni_slovo: Slovo, které chceme nahradit.
+            nove_slovo: Slovo, kterým chceme nahradit původní slovo.
+
+        Returns:
+            Nový řetězec s nahrazeným slovem.
+        """
+
+        # Najdeme index prvního výskytu původního slova
+        index = retezec.find(puvodni_slovo)
+
+        # ještě se musí ošetřit případ, kdy bude 
+        # na poddotaz napojená normální tabulka
+        pom_on = retezec.find('on')
+
+        # Pokud jsme slovo našli, provedeme nahrazení
+        if index != -1 and index < pom_on:
+            return (''.join(retezec[:index]) 
+            + '(' 
+            + ''.join(nove_slovo)
+            + ') ' + puvodni_slovo 
+            + ''.join(retezec[index + len(puvodni_slovo):]))
+        else:
+            return retezec
 
     def zpracovani_joinu(self) -> Self:
         """
         Zpracuje definované joiny a přidá je do seznamů joinů
         """
         res: list = []
+        sql=''
 
         for i, ihod in self.joiny_vysledne.items():
             # print(f'{ihod=}')
             if ihod.get('vychozi') == 1:
                 self.vychozi_tabulka = i
+            if ihod.get('je_poddotaz') == 1:
+                # otevře externí soubor s sql příkazem
+                # zkontroluje, zda je url s sql příkazem uvedeno
+                if ihod.get('sql')!='':
+                    n = Cteni(self.cesta)
+                    vs = n.vstupni_soubor(ihod.get('sql'))
+                    sql = n.cteni_seznamu(
+                        vs,
+                        'utf8',
+                        '\n'
+                    )
+                    self.poddotazy.append([i, sql])
+                else:
+                    logging.info('Není odkaz s SQL příkazem')
+            if ihod.get('vychozi') == 1 and ihod.get('je_poddotaz') == 1:
+                self.vychozi_tabulka = '(' + ' '.join(sql) + ') ' + i
 
             vazby = ihod.get('vazba')
             # print(f'{vazby=}')
@@ -489,7 +545,14 @@ class Jadro:
         if len(res) > 0:
             self.priznak_joinu = True
 
+        # když je poddotaz v joinu,
+        # tak nahraď jeho krycí jméno za sql a alias
+        for i in self.poddotazy:
+            for j in res:
+                if i[0] in j:
+                    res[res.index(j)] = self.nahrad_slovo(j, i[0], i[1])
         self._joiny = res
+
         logging.info('Joiny zpracovány v pořádku.')
         return self
     
@@ -526,7 +589,7 @@ class Jadro:
             prikaz += "\n".join(self._joiny) + '\n'
 
         if len(self._where) > 0:
-            prikaz += 'where '
+            prikaz += 'where 1=1 \nand '
             prikaz += "\nand ".join(self._where) + '\n'
             
         if self.priznak_group_by:
@@ -535,6 +598,19 @@ class Jadro:
 
         self.prikaz = prikaz
         return self
+    
+    def ulozeni_aliasu(self) -> None:
+        """
+        Metoda uloží výsledný SQL příkaz do souboru
+        """
+        z = Zapsani(self.cesta)
+        vys = z.vystupni_soubor('output-aliasy.sql')
+        z.zapsani_seznamu(
+            vys,
+            self._aliasy
+        )
+
+        logging.info('Aliasy zapsané v pořádku.')
     
     def ulozeni_vysledneho_sql(self) -> None:
         """
@@ -548,87 +624,4 @@ class Jadro:
         )
 
         logging.info('Výsledný SQL příkaz zapsaný.')
-
-
-class Schema:
-        
-    def __init__(self, cesta: str) -> None:
-
-        self.slozka = 'src'
-        self.cesta = os.path.join(cesta, self.slozka)
-
-        self.tabulky = []
-        self.prikaz = ''
-
-    def vytvoreni_slozky_se_soubory(self) -> None:
-        """
-        Jestliže neexistuje složka, ve které jsou
-        uložené soubory pro vytvoření sql příkazu,
-        vytvoří ji
-        """
-        try:
-            os.makedirs(self.cesta)
-            logging.info(f"Složka '{self.cesta}' byla úspěšně vytvořena.")
-
-        except FileExistsError:
-            logging.info(f"Složka '{self.cesta}' již existuje.")
-
-    def nacteni_seznamu_tabulek(self) -> list[str]:
-        """
-        Načte seznam tabulek jako jednoduchý seznam
-        """
-        n = Cteni(self.cesta)
-        vs = n.vstupni_soubor('tabulky.txt')
-        self.tabulky = n.cteni_seznamu(vs)
-
-        logging.info('Tabulky načtené v pořádku.')
-
-    def zapsani_prikazu_sql(self) -> None:
-        """
-        Zapíše příkaz sql
-        """
-        z = Zapsani(self.cesta)
-        vys = z.vystupni_soubor('sql-sloupce.sql')
-        z.zapsani_textu(
-            vys,
-            self.prikaz
-        )
-
-        logging.info('Příkaz zapsaný v pořádku.')
-
-    def vytvoreni_prikazu(self) -> None:
-        """
-        Sestaví příkaz pro získání seznamu sloupců u tabulek
-        """
-        t = ''
-        a = 0
-
-        if len(self.tabulky) == 0:
-            logging.info('Seznam tabulek je prázdný.')
-            return None
-
-        # sestaví sotaz pro vrácení seznamu sloupců
-        # pro každou tabulku
-        for i in self.tabulky:
-
-            match i:
-                case 'tractions_tr' | 'tractions_th':
-                    t = 'tractions'
-                case _:
-                    t = i
-
-            self.prikaz += f"SELECT '{i.upper()}' AS TABULKA, "
-            self.prikaz += "COLUMN_NAME, COLUMN_ID "
-            self.prikaz += "FROM ALL_TAB_COLUMNS "
-            self.prikaz += f"WHERE TABLE_NAME='{t.upper()}' "
-            self.prikaz += "AND OWNER='CDC_ICAR_L2'\n"
-
-            # když tabulka naní jako poslední
-            # bude následovat příkaz UNION ALL,
-            # jinak ne
-            if a != len(self.tabulky) - 1:
-                self.prikaz += f"UNION ALL\n"
-            a += 1
-
-        self.prikaz += f"ORDER BY TABULKA, COLUMN_ID;\n"
 
